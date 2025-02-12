@@ -1,5 +1,5 @@
-from page import complete_proccess
-from marked_model.run import main
+from image_processing import process_pdf
+from marked_model.run import run_model
 import os
 
 def delete_files_in_directory(directory_path):
@@ -15,7 +15,6 @@ def multiple_range_handling():
     delete_files_in_directory("pictures")
     delete_files_in_directory("pictures/duplicates")
     files = []
-    
     # Walk through directory and its subdirectories
     for root, dirs, filenames in os.walk("pdftorun"):
         for filename in filenames:
@@ -23,14 +22,13 @@ def multiple_range_handling():
             file_path = os.path.join(root, filename)
             files.append(file_path)
     for i in files:
-        complete_proccess(f"{i}")
+        process_pdf(f"{i}")
         filename = os.path.basename(i)  # Gets "something.pdf"
         poll_prefix = os.path.splitext(filename)[0]  # Gets "something"
-        main(poll_prefix)
+        run_model(poll_prefix)
         delete_files_in_directory("pictures")
         delete_files_in_directory("pictures/duplicates")
     delete_files_in_directory("pdftorun")
-
     return files
 
 multiple_range_handling()

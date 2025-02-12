@@ -135,7 +135,7 @@ def save_to_csv(results, output_path):
         writer.writeheader()
         for result in sorted_items:
             writer.writerow(result)
-def main(prefix):
+def run_model(prefix):
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
@@ -156,4 +156,4 @@ def main(prefix):
     save_to_csv(results, output_csv)
 
 if __name__ == '__main__':
-    main()
+    run_model()
