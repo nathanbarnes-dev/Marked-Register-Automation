@@ -135,7 +135,7 @@ def save_to_csv(results, output_path):
         writer.writeheader()
         for result in sorted_items:
             writer.writerow(result)
-def run_model(prefix):
+def run_model(prefix,csv_output,mode):
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
@@ -143,7 +143,7 @@ def run_model(prefix):
     # Set paths
     model_path = 'best_marking_detector.pth'
     test_folder = 'pictures'  # Replace with your test folder path
-    output_csv = 'marking_results.csv'  # Output CSV file name
+    output_csv = csv_output  # Output CSV file name
     image_prefix = prefix  # Replace with your desired prefix
     
     # Load model

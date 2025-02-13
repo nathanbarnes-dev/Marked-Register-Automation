@@ -11,7 +11,7 @@ def delete_files_in_directory(directory_path):
         if os.path.isfile(file_path):
             os.remove(file_path)
 
-def multiple_range_handling():
+def multiple_range_handling(csv_path,mode):
     delete_files_in_directory("pictures")
     delete_files_in_directory("pictures/duplicates")
     files = []
@@ -25,10 +25,10 @@ def multiple_range_handling():
         process_pdf(f"{i}")
         filename = os.path.basename(i)  # Gets "something.pdf"
         poll_prefix = os.path.splitext(filename)[0]  # Gets "something"
-        run_model(poll_prefix)
+        run_model(poll_prefix,csv_path,mode)
         delete_files_in_directory("pictures")
         delete_files_in_directory("pictures/duplicates")
     delete_files_in_directory("pdftorun")
     return files
 
-multiple_range_handling()
+

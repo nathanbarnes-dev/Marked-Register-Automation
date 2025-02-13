@@ -72,7 +72,6 @@ def process_poll_data(file_path, ranges_data):
     except Exception as e:
         return False, f"Error processing PDFs: {str(e)}", []
 
-    
 class PDFSelector(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
@@ -82,9 +81,11 @@ class PDFSelector(TkinterDnD.Tk):
         
         # Variables
         self.pdf_path = tk.StringVar()
+        self.csv_path = tk.StringVar()
         self.total_pages = tk.IntVar(value=0)
         self.current_doc = None
         self.page_ranges = []  # List to store PageRange objects
+        self.csv_mode = tk.StringVar(value="new")  # "new" or "append"
         
         self.create_widgets()
         
@@ -145,6 +146,28 @@ class PDFSelector(TkinterDnD.Tk):
         canvas.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         scrollbar.pack(side="right", fill="y", pady=5)
         
+        # CSV Output section
+        csv_frame = ttk.LabelFrame(left_panel, text="CSV Output Settings")
+        csv_frame.pack(pady=10, fill="x", padx=10)
+        
+        # CSV Mode selection
+        mode_frame = ttk.Frame(csv_frame)
+        mode_frame.pack(fill="x", pady=5)
+        
+        ttk.Radiobutton(mode_frame, text="Create New CSV", 
+                       variable=self.csv_mode, value="new").pack(side="left", padx=5)
+        ttk.Radiobutton(mode_frame, text="Append to Existing", 
+                       variable=self.csv_mode, value="append").pack(side="left", padx=5)
+        
+        # CSV path selection
+        path_frame = ttk.Frame(csv_frame)
+        path_frame.pack(fill="x", pady=5)
+        
+        self.csv_path_entry = ttk.Entry(path_frame, textvariable=self.csv_path)
+        self.csv_path_entry.pack(side="left", fill="x", expand=True, padx=(5, 2))
+        
+        ttk.Button(path_frame, text="Browse", command=self.browse_csv).pack(side="left", padx=(2, 5))
+        
         # Buttons frame
         buttons_frame = ttk.Frame(left_panel)
         buttons_frame.pack(pady=10, padx=10, fill="x")
@@ -193,6 +216,22 @@ class PDFSelector(TkinterDnD.Tk):
         
         # Add initial range
         self.add_range()
+    
+    def browse_csv(self):
+        if self.csv_mode.get() == "new":
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv")],
+                title="Select CSV Output Location"
+            )
+        else:  # append mode
+            file_path = filedialog.askopenfilename(
+                filetypes=[("CSV files", "*.csv")],
+                title="Select CSV to Append"
+            )
+            
+        if file_path:
+            self.csv_path.set(file_path)
     
     def create_range_frame(self, page_range, index):
         frame = ttk.Frame(self.ranges_container)
@@ -375,7 +414,6 @@ class PDFSelector(TkinterDnD.Tk):
         label.image = photo
     
     def process_ranges(self):
-        
         """Process all page ranges and create individual PDFs."""
         if not self.validate_all_ranges():
             return
@@ -383,6 +421,10 @@ class PDFSelector(TkinterDnD.Tk):
         try:
             if not self.pdf_path.get():
                 messagebox.showwarning("Warning", "Please load a PDF first")
+                return
+                
+            if not self.csv_path.get():
+                messagebox.showwarning("Warning", "Please select a CSV output location")
                 return
             
             # Collect all range data
@@ -399,13 +441,16 @@ class PDFSelector(TkinterDnD.Tk):
                 }
                 ranges_data.append(range_data)
             
-            # Send data to processing function
-            success, message, processed_polls = process_poll_data(self.pdf_path.get(), ranges_data)
+            # Call process_poll_data with only the required arguments
+            success, message, processed_polls = process_poll_data(
+                self.pdf_path.get(), 
+                ranges_data
+            )
             
             if success:
                 messagebox.showinfo("Success", message)
                 # Run multiple range handling after successful PDF creation
-                multiple_range_handling()
+                multiple_range_handling(csv_path=self.csv_path.get(), mode=self.csv_mode.get())
             else:
                 messagebox.showerror("Error", message)
                 
