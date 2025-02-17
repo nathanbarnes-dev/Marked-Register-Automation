@@ -17,6 +17,9 @@ def ocrtotext(filepath: str) -> List[List]:
     """Convert PDF to text using OCR."""
     model = kie_predictor(det_arch='db_resnet50', reco_arch='crnn_vgg16_bn', pretrained=True)
     doc = DocumentFile.from_pdf(filepath)
+    for i, page in enumerate(doc):
+        result = model([page])  # Process one page at a time
+        print(f"Finished processing page {i + 1}")
     result = model(doc)
     
     return [

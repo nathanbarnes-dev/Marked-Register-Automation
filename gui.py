@@ -6,6 +6,8 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 from PIL import Image, ImageTk
 import fitz  # PyMuPDF for page preview
 from interface import multiple_range_handling
+import threading
+import queue
 
 class PageRange:
     def __init__(self):
@@ -414,6 +416,7 @@ class PDFSelector(TkinterDnD.Tk):
         label.image = photo
     
     def process_ranges(self):
+        
         """Process all page ranges and create individual PDFs."""
         if not self.validate_all_ranges():
             return
@@ -440,27 +443,226 @@ class PDFSelector(TkinterDnD.Tk):
                     'poll_number': page_range.poll_number.get().strip()
                 }
                 ranges_data.append(range_data)
+                
+            # Create a queue for the result
+            result_queue = queue.Queue()
+                
+            def create_pdfs_thread():
+                try:
+                    # Call process_poll_data and put its result directly into the queue
+                    result = process_poll_data(self.pdf_path.get(), ranges_data)
+                    result_queue.put(("success", result))
+                except Exception as e:
+                    result_queue.put(("error", str(e)))
+                
+            # Show initial processing message
+            please_wait = tk.Toplevel(self)
+            please_wait.title("Processing")
+            please_wait.geometry("300x100")
+            screen_width = please_wait.winfo_screenwidth()
+            screen_height = please_wait.winfo_screenheight()
+            x = (screen_width - 300) // 2
+            y = (screen_height - 100) // 2
+            please_wait.geometry(f"300x100+{x}+{y}")
             
-            # Call process_poll_data with only the required arguments
-            success, message, processed_polls = process_poll_data(
-                self.pdf_path.get(), 
-                ranges_data
-            )
+            # Add label to please_wait window
+            label = ttk.Label(please_wait, text="Creating PDFs...\nPlease wait.", 
+                            font=('Helvetica', 10))
+            label.pack(pady=20)
             
-            if success:
-                messagebox.showinfo("Success", message)
-                # Run multiple range handling after successful PDF creation
-                multiple_range_handling(csv_path=self.csv_path.get(), mode=self.csv_mode.get())
-            else:
-                messagebox.showerror("Error", message)
+            please_wait.transient(self)
+            please_wait.grab_set()
+            
+            # Start PDF creation thread
+            pdf_thread = threading.Thread(target=create_pdfs_thread, daemon=True)
+            pdf_thread.start()
+            
+            def check_thread():
+                if pdf_thread.is_alive():
+                    # Thread still running, check again in 100ms
+                    self.after(100, check_thread)
+                else:
+                    # Thread finished
+                    please_wait.destroy()
+                    
+                    try:
+                        # Get result from queue
+                        status, result = result_queue.get_nowait()
+                        
+                        if status == "error":
+                            messagebox.showerror("Error", f"Error creating PDFs: {result}")
+                            return
+                        
+                        # Unpack the result tuple
+                        success, message, processed_polls = result
+                        
+                        if success:
+                            # Count number of files to process
+                            num_files = len([f for f in os.listdir("pdftorun") if f.endswith('.pdf')])
+                            
+                            # Create and show loading screen
+                            loading_screen = LoadingScreen(self, num_files)
+                            
+                            # Start processing
+                            loading_screen.start_processing(
+                                self.csv_path.get(),
+                                self.csv_mode.get()
+                            )
+                        else:
+                            messagebox.showerror("Error", message)
+                            
+                    except queue.Empty:
+                        messagebox.showerror("Error", "An unexpected error occurred")
+                        
+            # Start checking the thread
+            self.after(100, check_thread)
                 
         except Exception as e:
+            if 'please_wait' in locals():
+                please_wait.destroy()
             messagebox.showerror("Error", f"Error processing ranges: {str(e)}")
-    
+        
     def __del__(self):
         if self.current_doc:
             self.current_doc.close()
 
+class LoadingScreen(tk.Toplevel):
+    def __init__(self, parent, total_files):
+        super().__init__(parent)
+        
+        self.total_files = total_files
+        self.current_file = 0
+        self.total_pages = 0
+        self.current_page = 0
+        self.parent = parent
+        self.processing_finished = False
+        
+        # Add a queue for thread-safe updates
+        self.update_queue = queue.Queue()
+        
+        # Configure window
+        self.title("Processing PDFs")
+        window_width = 400
+        window_height = 200
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        center_x = int(screen_width/2 - window_width/2)
+        center_y = int(screen_height/2 - window_height/2)
+        
+        self.geometry(f'{window_width}x{window_height}+{center_x}+{center_y}')
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()  # Make window modal
+        
+        # Configure grid
+        self.grid_columnconfigure(0, weight=1)
+        
+        # Add loading message
+        self.message_label = ttk.Label(
+            self,
+            text="Running PDFs through Neural Network...",
+            font=('Helvetica', 12)
+        )
+        self.message_label.grid(row=0, column=0, pady=20)
+        
+        # Progress bar
+        self.progress = ttk.Progressbar(
+            self,
+            mode='determinate',
+            length=300,
+            maximum=100
+        )
+        self.progress.grid(row=1, column=0, padx=50, pady=10)
+        
+        # Progress label
+        self.progress_label = ttk.Label(
+            self,
+            text="Processing...",
+            font=('Helvetica', 10)
+        )
+        self.progress_label.grid(row=2, column=0, pady=10)
+        
+        # Current file label
+        self.file_label = ttk.Label(
+            self,
+            text="",
+            font=('Helvetica', 10)
+        )
+        self.file_label.grid(row=3, column=0, pady=10)
+        
+        # Start checking the queue
+        self.check_queue()
+    
+    def set_total_pages(self, total):
+        """Set the total number of pages across all files."""
+        self.total_pages = total
+    
+    def check_queue(self):
+        """Check for updates from the processing thread."""
+        try:
+            while True:  # Process all updates in queue
+                update_type, *args = self.update_queue.get_nowait()
+                if update_type == "file_progress":
+                    self.update_file_progress(*args)
+                elif update_type == "page_progress":
+                    self.update_page_progress(*args)
+                elif update_type == "finish":
+                    self.finish()
+                    return  # Stop checking queue
+                self.update_queue.task_done()
+        except queue.Empty:
+            if not self.processing_finished:
+                # Check again after 100ms
+                self.after(100, self.check_queue)
+    
+    def update_file_progress(self, current_file, total_files, filename, pages_processed):
+        """Update progress when starting a new file."""
+        self.current_file = current_file
+        self.file_label.config(text=f"Current file: {filename}")
+        self.current_page = pages_processed
+        self.update_progress()
+        
+    def update_page_progress(self, total_pages_processed):
+        """Update progress based on completed pages."""
+        self.current_page = total_pages_processed
+        self.update_progress()
+        
+    def update_progress(self):
+        """Update progress bar and labels."""
+        if self.total_pages > 0:
+            progress = (self.current_page / self.total_pages) * 100
+            self.progress['value'] = min(progress, 100)
+            
+            self.progress_label.config(
+                text=f"File {self.current_file}/{self.total_files} - "
+                     f"Progress: {self.current_page}/{self.total_pages} pages"
+            )
+        self.update()
+    
+    def start_processing(self, csv_path, mode):
+        """Start processing in a separate thread."""
+        self.processing_finished = False
+        threading.Thread(
+            target=self._run_processing,
+            args=(csv_path, mode),
+            daemon=True
+        ).start()
+    
+    def _run_processing(self, csv_path, mode):
+        """Run the processing function and handle its completion."""
+        try:
+            multiple_range_handling(csv_path, mode, self)
+            self.update_queue.put(("finish",))
+        except Exception as e:
+            # Send error to main thread
+            self.parent.after(0, messagebox.showerror, "Error", str(e))
+            self.update_queue.put(("finish",))
+        finally:
+            self.processing_finished = True
+    
+    def finish(self):
+        """Close the loading screen."""
+        self.destroy()
 if __name__ == "__main__":
     app = PDFSelector()
     app.mainloop()
