@@ -8,6 +8,7 @@ import fitz  # PyMuPDF for page preview
 from interface import multiple_range_handling
 import threading
 import queue
+import time
 
 class PageRange:
     def __init__(self):
@@ -537,13 +538,19 @@ class LoadingScreen(tk.Toplevel):
         self.parent = parent
         self.processing_finished = False
         
+        # Add timing variables for ETA calculation
+        self.start_time = None
+        self.last_update_time = None
+        self.last_page_count = 0
+        self.page_processing_rates = []  # Store recent processing rates
+        
         # Add a queue for thread-safe updates
         self.update_queue = queue.Queue()
         
         # Configure window
         self.title("Processing PDFs")
         window_width = 400
-        window_height = 200
+        window_height = 220  # Increased height for ETA display
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         center_x = int(screen_width/2 - window_width/2)
@@ -580,7 +587,7 @@ class LoadingScreen(tk.Toplevel):
             text="Processing...",
             font=('Helvetica', 10)
         )
-        self.progress_label.grid(row=2, column=0, pady=10)
+        self.progress_label.grid(row=2, column=0, pady=5)
         
         # Current file label
         self.file_label = ttk.Label(
@@ -588,7 +595,15 @@ class LoadingScreen(tk.Toplevel):
             text="",
             font=('Helvetica', 10)
         )
-        self.file_label.grid(row=3, column=0, pady=10)
+        self.file_label.grid(row=3, column=0, pady=5)
+        
+        # ETA label
+        self.eta_label = ttk.Label(
+            self,
+            text="Calculating ETA...",
+            font=('Helvetica', 10)
+        )
+        self.eta_label.grid(row=4, column=0, pady=10)
         
         # Start checking the queue
         self.check_queue()
@@ -596,6 +611,8 @@ class LoadingScreen(tk.Toplevel):
     def set_total_pages(self, total):
         """Set the total number of pages across all files."""
         self.total_pages = total
+        self.start_time = time.time()
+        self.last_update_time = self.start_time
     
     def check_queue(self):
         """Check for updates from the processing thread."""
@@ -628,7 +645,7 @@ class LoadingScreen(tk.Toplevel):
         self.update_progress()
         
     def update_progress(self):
-        """Update progress bar and labels."""
+        """Update progress bar, labels, and ETA."""
         if self.total_pages > 0:
             progress = (self.current_page / self.total_pages) * 100
             self.progress['value'] = min(progress, 100)
@@ -637,6 +654,47 @@ class LoadingScreen(tk.Toplevel):
                 text=f"File {self.current_file}/{self.total_files} - "
                      f"Progress: {self.current_page}/{self.total_pages} pages"
             )
+            
+            # Calculate and update ETA
+            current_time = time.time()
+            time_elapsed = current_time - self.last_update_time
+            pages_processed_since_last = self.current_page - self.last_page_count
+            
+            # Only update rate calculation if some time has passed and pages were processed
+            if time_elapsed > 0.5 and pages_processed_since_last > 0:
+                # Calculate pages per second
+                current_rate = pages_processed_since_last / time_elapsed
+                
+                # Keep the last 5 rates for smoothing
+                self.page_processing_rates.append(current_rate)
+                if len(self.page_processing_rates) > 5:
+                    self.page_processing_rates.pop(0)
+                
+                # Calculate average rate
+                avg_rate = sum(self.page_processing_rates) / len(self.page_processing_rates)
+                
+                # Calculate ETA
+                pages_remaining = self.total_pages - self.current_page
+                if avg_rate > 0:
+                    seconds_remaining = pages_remaining / avg_rate
+                    
+                    # Format time remaining
+                    if seconds_remaining < 60:
+                        eta_text = f"ETA: {int(seconds_remaining)} seconds"
+                    elif seconds_remaining < 3600:
+                        minutes = int(seconds_remaining // 60)
+                        seconds = int(seconds_remaining % 60)
+                        eta_text = f"ETA: {minutes} minutes, {seconds} seconds"
+                    else:
+                        hours = int(seconds_remaining // 3600)
+                        minutes = int((seconds_remaining % 3600) // 60)
+                        eta_text = f"ETA: {hours} hours, {minutes} minutes"
+                    
+                    self.eta_label.config(text=eta_text)
+                
+                # Update last values for next calculation
+                self.last_update_time = current_time
+                self.last_page_count = self.current_page
         self.update()
     
     def start_processing(self, csv_path, mode):
@@ -663,6 +721,3 @@ class LoadingScreen(tk.Toplevel):
     def finish(self):
         """Close the loading screen."""
         self.destroy()
-if __name__ == "__main__":
-    app = PDFSelector()
-    app.mainloop()

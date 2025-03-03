@@ -8,6 +8,7 @@ from image_processing import process_pdf
 from marked_model.run import run_model
 from PyPDF2 import PdfReader
 
+
 def delete_files_in_directory(directory_path):
     for file in os.listdir(directory_path):
         file_path = os.path.join(directory_path, file)
@@ -105,5 +106,25 @@ def delete_files_in_directory(directory_path):
         if os.path.isfile(file_path):
             os.remove(file_path)
 
+def startup():
+    folders = [
+        "pictures",
+        "pictures/duplicates",
+        "pdftorun"
+    ]
+    
+    # Create each folder if it doesn't exist
+    for folder in folders:
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+            print(f"Created folder: {folder}")
+        else:
+            print(f"Folder already exists: {folder}")
+            delete_files_in_directory(folder)
 
 
+if __name__ == "__main__":
+    from gui import PDFSelector
+    startup()
+    app = PDFSelector()
+    app.mainloop()
