@@ -126,11 +126,11 @@ def group_entries_by_position(line_entries: List[Tuple[str, Tuple]], x_threshold
     return groups
 
 def extract_entries(poll_data: str) -> List[Entry]:
-    """Extract entries with better handling of street names and multi-line elements."""
+    """Extract entries with simpler line-by-line processing."""
     results = []
     data = eval(poll_data)
     
-    # Sort by y-coordinate
+    # Sort by y-coordinate first to group entries by line
     data.sort(key=lambda x: x[1][0][1])
     
     # Use adaptive thresholding for line grouping
@@ -151,7 +151,6 @@ def extract_entries(poll_data: str) -> List[Entry]:
             y_diff = abs(curr_y - prev_y)
             
             # Use an adaptive threshold based on font size approximation
-            # Assuming font height is roughly proportional to the height of the bounding box
             font_height = coords[1][1] - coords[0][1]
             y_threshold = min(0.01, font_height * 0.5)  # Adaptive threshold
             
@@ -167,42 +166,48 @@ def extract_entries(poll_data: str) -> List[Entry]:
     if current_line:
         lines.append(current_line)
     
-    # Process each line, being careful around potential street names
-    for i, line in enumerate(lines):
-        entry_groups = group_entries_by_position(line)
+    # Process each line
+    for line in lines:
+        # Sort entries in line by x-coordinate
+        line.sort(key=lambda x: x[1][0][0])
         
-        for group in entry_groups:
-            # Skip groups that should be excluded (like page numbers or street names)
-            if should_exclude_group([entry[0] for entry in group]):
-                continue
-            
-            # Extract number and name components
-            number = None
-            number_coords = None
-            name_parts = []
-            name_coords = []
-            
-            # Look for poll number
-            for text, coords in group:
-                if is_number(text) and not number:  # Take the first valid number
-                    number = text
-                    number_coords = coords
-            
-            # If we found a number, collect the rest as name
-            if number:
-                for text, coords in group:
-                    if text != number:  # Anything that's not the number is part of the name
-                        name_parts.append(text)
-                        name_coords.append(coords)
+        # Check if there are poll numbers in this line
+        has_poll_number = any(is_number(entry[0]) for entry in line)
+        
+        # If no poll numbers, this might be a header or non-entry line
+        if not has_poll_number:
+            continue
+        
+        # Process each entry in the line that has a poll number
+        for i, (text, coords) in enumerate(line):
+            if is_number(text):
+                # Found a poll number
+                poll_num = text
+                poll_coords = coords
                 
-                # Create entry if we have both number and name
+                # Collect all text after the poll number for name
+                name_parts = []
+                name_coords = []
+                
+                # Look at the entries after this one in the same line
+                for j in range(i + 1, len(line)):
+                    next_text, next_coords = line[j]
+                    
+                    # If we encounter another poll number, that's a new entry
+                    if is_number(next_text):
+                        break
+                    
+                    name_parts.append(next_text)
+                    name_coords.append(next_coords)
+                
+                # Create entry if we have both poll number and name
                 if name_parts:
                     name = clean_text(' '.join(name_parts))
                     if name:
-                        all_coords = [number_coords] + name_coords
+                        all_coords = [poll_coords] + name_coords
                         bbox = get_bounding_box(all_coords)
                         if bbox:
-                            results.append(Entry(number=number, name=name, bbox=bbox))
+                            results.append(Entry(number=poll_num, name=name, bbox=bbox))
     
     return results
 
