@@ -126,69 +126,83 @@ def group_entries_by_position(line_entries: List[Tuple[str, Tuple]], x_threshold
     return groups
 
 def extract_entries(poll_data: str) -> List[Entry]:
-    """Extract entries from poll data, handling double columns."""
+    """Extract entries with better handling of street names and multi-line elements."""
     results = []
     data = eval(poll_data)
     
     # Sort by y-coordinate
     data.sort(key=lambda x: x[1][0][1])
     
-    # Group by similar y-coordinates
-    y_threshold = 0.01
-    current_y = None
-    current_line = []
+    # Use adaptive thresholding for line grouping
     lines = []
+    current_line = []
     
-    for entry in data:
-        text, ((_, y1), _) = entry
+    for i, entry in enumerate(data):
+        text, coords = entry
         
-        if current_y is None or abs(y1 - current_y) < y_threshold:
-            current_line.append(entry)
-            current_y = y1
-        else:
-            if current_line:
-                lines.append(current_line)
+        if i == 0:
+            # First entry starts a new line
             current_line = [entry]
-            current_y = y1
+        else:
+            prev_y = data[i-1][1][0][1]
+            curr_y = coords[0][1]
+            
+            # Compute distance between this entry and previous one
+            y_diff = abs(curr_y - prev_y)
+            
+            # Use an adaptive threshold based on font size approximation
+            # Assuming font height is roughly proportional to the height of the bounding box
+            font_height = coords[1][1] - coords[0][1]
+            y_threshold = min(0.01, font_height * 0.5)  # Adaptive threshold
+            
+            if y_diff < y_threshold:
+                # Same line
+                current_line.append(entry)
+            else:
+                # New line
+                if current_line:
+                    lines.append(current_line)
+                current_line = [entry]
     
     if current_line:
         lines.append(current_line)
     
-    # Process each line
-    for line in lines:
+    # Process each line, being careful around potential street names
+    for i, line in enumerate(lines):
         entry_groups = group_entries_by_position(line)
         
         for group in entry_groups:
+            # Skip groups that should be excluded (like page numbers or street names)
             if should_exclude_group([entry[0] for entry in group]):
                 continue
             
+            # Extract number and name components
             number = None
             number_coords = None
             name_parts = []
             name_coords = []
-            number_x = float('inf')
             
+            # Look for poll number
             for text, coords in group:
-                if is_number(text):
+                if is_number(text) and not number:  # Take the first valid number
                     number = text
                     number_coords = coords
-                    number_x = coords[0][0]
             
-            rightmost_name_x = float('-inf')
-            for text, coords in group:
-                if not is_number(text):
-                    name_x = coords[0][0]
-                    name_parts.append(text)
-                    name_coords.append(coords)
-                    rightmost_name_x = max(rightmost_name_x, name_x)
-            
-            if number and name_parts and number_x < rightmost_name_x:
-                name = clean_text(' '.join(name_parts))
-                if name:
-                    all_coords = [number_coords] + name_coords
-                    bbox = get_bounding_box(all_coords)
-                    if bbox:
-                        results.append(Entry(number=number, name=name, bbox=bbox))
+            # If we found a number, collect the rest as name
+            if number:
+                for text, coords in group:
+                    if text != number:  # Anything that's not the number is part of the name
+                        name_parts.append(text)
+                        name_coords.append(coords)
+                
+                # Create entry if we have both number and name
+                if name_parts:
+                    name = clean_text(' '.join(name_parts))
+                    if name:
+                        all_coords = [number_coords] + name_coords
+                        bbox = get_bounding_box(all_coords)
+                        if bbox:
+                            results.append(Entry(number=number, name=name, bbox=bbox))
     
     return results
 
