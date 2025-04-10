@@ -46,7 +46,8 @@ def is_number(text: str) -> bool:
     parts = cleaned.split('/')
     main_number = parts[0]
     
-    if not main_number or (len(main_number) > 1 and main_number.startswith('0')):
+    # Reject if main number starts with 0
+    if not main_number or main_number.startswith('0'):
         return False
     
     if len(parts) > 1:
