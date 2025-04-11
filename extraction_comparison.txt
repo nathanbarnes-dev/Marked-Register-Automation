@@ -1,0 +1,78 @@
+COMPARISON OF EXTRACTION METHODS
+
+Poll#    | Method V1 | Method V2 | Grid  | Pattern | Final | Name
+---------+---------+---------+---------+---------+---------+-------------------------------
+302.     |   X   |       |       |       |   X   | Blow, Mason, Michael Jonathan
+1        |   X   |   X   |   X   |   X   |   X   | Filwood Court
+2        |   X   |   X   |   X   |   X   |   X   | Filwood Court
+3        |   X   |   X   |   X   |   X   |   X   | Filwood Court
+4        |   X   |   X   |   X   |   X   |   X   | Filwood Court
+5        |   X   |   X   |   X   |   X   |   X   | Filwood Court
+6        |   X   |       |       |       |   X   | LA k:
+230/1    |   X   |   X   |   X   |   X   |   X   | Elester Removed
+231      |   X   |   X   |   X   |   X   |   X   | Hussain, Amman
+232      |   X   |   X   |   X   |   X   |   X   | Hussain, Fazala
+232/1    |   X   |   X   |   X   |   X   |   X   | Hussain, Zaara
+233      |   X   |   X   |   X   |   X   |   X   | Kaur, Satvinder
+234      |   X   |   X   |   X   |   X   |   X   | Kaur, Sukvinder
+235      |   X   |   X   |   X   |   X   |   X   | Singh, Gurdit
+236      |   X   |   X   |   X   |   X   |   X   | Singh, Gurmeet
+237      |   X   |   X   |   X   |   X   |   X   | A Wliame Mighelle
+238      |   X   |   X   |   X   |   X   |   X   | B Ratiu,Ciprianac
+239      |   X   |   X   |   X   |   X   |   X   | A Hitsheeek,Stasey
+240-     |   X   |   X   |   X   |   X   |   X   | Steer, Brian WG
+241      |   X   |   X   |   X   |   X   |   X   | Steer, Janet S
+242-     |   X   |   X   |   X   |   X   |   X   | Aldom, Rebecca L
+243-     |   X   |   X   |   X   |   X   |   X   | Miles, Jessica
+244      |   X   |   X   |   X   |   X   |   X   | Alder, Jane
+245      |   X   |   X   |   X   |   X   |   X   | Alder, Richard
+246      |   X   |   X   |   X   |   X   |   X   | Willams waldon, Gina L C
+247      |   X   |   X   |   X   |   X   |   X   | Miller, Sheila
+248-     |   X   |   X   |   X   |   X   |   X   | Stephens, Althia
+249      |   X   |   X   |   X   |       |   X   | Lewis, Chelsie
+250      |   X   |   X   |   X   |   X   |   X   | Mutunga, Mutethya W
+251      |   X   |   X   |   X   |   X   |   X   | Holly Stone, Zenna
+252      |   X   |   X   |   X   |   X   |   X   | Stone, Debra S
+253      |   X   |   X   |   X   |   X   |   X   | A BaFf,Patricia M
+254      |   X   |   X   |   X   |   X   |   X   | Barr, Ross A
+255      |   X   |   X   |   X   |   X   |   X   | Gwanzura, Lordwine
+255/2-   |   X   |       |       |       |   X   | :Brien, Rogers, Kristian Danie
+258      |   X   |       |       |       |   X   | Panes, West, Veck, Debra Roder
+260      |   X   |       |       |       |   X   | Shattock, Shattock, Andrew Iri
+261      |   X   |   X   |   X   |   X   |   X   | Fornear, Joanne
+262      |   X   |   X   |   X   |   X   |   X   | Fornear, Richard P
+263      |   X   |   X   |   X   |   X   |   X   | Elestor Removed
+263/1    |   X   |   X   |   X   |   X   |   X   | Forbes, Lewis
+264-     |   X   |   X   |   X   |   X   |   X   | Plant, Hanna M
+265      |   X   |   X   |   X   |   X   |   X   | Elector Removed
+266      |   X   |   X   |   X   |   X   |   X   | Weaver, Maria
+267      |   X   |   X   |   X   |   X   |   X   | Guy, Stephen W
+268      |   X   |   X   |   X   |   X   |   X   | Guy, Susan A
+269      |   X   |   X   |   X   |   X   |   X   | Braybrooke, Catherine L
+270      |   X   |   X   |   X   |   X   |   X   | Braybrooke, Nigel J
+272      |   X   |   X   |   X   |   X   |   X   | Emerson, Amy R
+273      |   X   |   X   |   X   |   X   |   X   | Bembenek, Mark S
+274      |   X   |   X   |   X   |   X   |   X   | Curry, Daniel
+275      |   X   |   X   |   X   |   X   |   X   | Bunka, Catherine L
+276      |   X   |   X   |   X   |   X   |   X   | Mckee, Arlen M
+277      |   X   |   X   |   X   |   X   |   X   | Mckee, Cormac R
+278      |   X   |   X   |   X   |   X   |   X   | A Mekee,Evelyn kB
+279-     |   X   |   X   |   X   |   X   |   X   | Greenyer, George W
+280      |   X   |   X   |   X   |   X   |   X   | Greenyer, Harriet B
+281      |   X   |   X   |   X   |   X   |   X   | Stanleigh, Kate L
+282      |   X   |   X   |   X   |       |   X   | Stanleigh, Martyn G
+283-     |   X   |   X   |   X   |   X   |   X   | Long, Rachael
+284-     |   X   |   X   |   X   |   X   |   X   | Watts, Louise A
+285      |   X   |   X   |   X   |   X   |   X   | Roberts, David
+286-     |   X   |   X   |   X   |   X   |   X   | Roberts, Lynne
+287-     |   X   |   X   |   X   |   X   |   X   | Keel, Frances
+288      |   X   |   X   |   X   |   X   |   X   | Mcloughlin, Tara
+289      |   X   |   X   |   X   |   X   |   X   | Edwards, Kathryn
+290      |   X   |   X   |   X   |   X   |   X   | Ljndsay, Daniel W
+291      |   X   |   X   |       |       |   X   | Perry, David A
+292-     |   X   |   X   |   X   |   X   |   X   | Syorinic, Brandon D
+293      |   X   |   X   |   X   |   X   |   X   | A Ramsay Marisa
+294-     |   X   |   X   |   X   |   X   |   X   | Béavins, Clare D
+295      |   X   |   X   |   X   |   X   |   X   | A Burton,Craig
+300      |       |   X   |   X   |   X   |   X   | A A "Dickinson, Wallis
+435      |   X   |   X   |       |   X   |   X   | ::

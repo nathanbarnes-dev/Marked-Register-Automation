@@ -1,0 +1,99 @@
+Version 1 found 80 entries
+Version 2 found 62 entries
+Grid-based found 78 entries
+Pattern-based found 40 entries
+Combined approach has 93 entries
+
+222/1-: Dale, Joshua S
+222/2-: Carver, Alice VE
+223: Elester Removed
+224: Wood, Victoria S
+225: Pearce, Katie L
+226: Pearce, Katy L
+227: Rosedam, Maisie I
+228: Jackson, Vernal
+229: Teucher, Dirk A
+230: Teucher, Helen E
+231: Hoare, Oliver F
+231P: Hoare, Oliver F
+232: Yates, Eleanor M
+233: Elmes,Loma M
+233A: Elmes,Loma M
+234: Takooree, Hema
+235: Takooree, Pariagsing
+236: Takooree, Vjayanthimala
+237: Arbery, Paul
+238: Arbery, Sandra J
+239: Gubb, Amy L
+240: Gubb, Royston
+240/1: Cox, David R
+241: Osula, John
+242: Trohear, Jonathan D
+243: Cox, Trohear
+244: Abdullahi, Abdulaziz
+245: Abdullahi, Abdullahi
+245/1--: Abdullahi, Sagal
+245/1-: Abdullahi, Sagal
+245/2-: Abdullahi, Sahra
+246: Abdullahi, Yonis AA
+247: Osman, Ayan
+248: Cobern, Barbara A
+249: Povey, Natalie
+250: Wilder, Rachel
+251: Allen, Wilder
+252: 253/1 m
+253: Abdi, Ahmed H
+253/1-m: Hashi, Mohamed A
+253/1: Abdi, Hashi, Ahmed
+254: Hassan, Hamdi Ahmed
+255: Colston, Joeanne
+256: Hemmings, Cavette
+257: Lacroix, Nico
+258: Abraham, Ancy
+259: Kottakal Illikani Sebastian
+260: Gallagher,Tbys
+260A: Gallagher,Tbys
+261: Fallersall,AAna G
+261A: Fallersall,AAna G
+262: Lyon, Lisa M
+263: Lyon, Stewart
+263/1: Ali, Asif
+263/2-: Taj, Sidra
+264: James, Karen J
+265: James, Samantha L
+266: James, Stephen M
+267: Hepburn Orena, Diana
+268: Orena, Christian
+269: Kaur, Sharanjeet
+270: Singh, Talwinder
+271: Ye, Jacqueline
+272: Ye, Katie M
+273: Waterman Jones
+274: enes,Chrstephert
+274A: enes,Chrstephert
+275: Kola, Anouk
+276: Lengh, Jonathan
+277: Street, lan R
+278: Street, Joanne
+279: Thatcher, Benedict E
+280: Abraham, Jasmin
+281: Abraham, Leanne
+282: Thatcher, Abraham
+283: Hardy, Mark
+284: Hardy, Megan L
+285: Byrne, Hardy
+286: Byrne, Margaret
+287: Hurst,Penelepe F
+287A: Hurst,Penelepe F
+288: tpwin,Carele M
+288A: tpwin,Carele M
+289: Begum, Anisa
+290: Mccoll, Louisa
+290/1: Elester Remeved
+290/2: Elester Remeved
+291: Elester Remeved
+292: EeGtOFRemevee
+293: Booth, Jennifer S
+294: Shapiro, Kieran P
+295: Moon, Maxine
+296: Moon, Johnson
