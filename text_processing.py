@@ -215,123 +215,265 @@ def extract_entries_v1(poll_data: str) -> List[Entry]:
     return results
 
 def extract_entries_v2(poll_data: str) -> List[Entry]:
-    """Extract entries specifically for electoral register format."""
+    """
+    Improved version that addresses the specific problem of missed poll numbers,
+    with better detection to prevent inclusion of previous entries.
+    """
     results = []
     data = eval(poll_data)
     
-    # Determine page dimensions from the data
+    if not data:
+        return results
+    
+    # Get document metrics
+    text_heights = [coords[1][1] - coords[0][1] for _, coords in data]
+    text_heights.sort()
+    median_text_height = text_heights[len(text_heights)//2] if text_heights else 0.02
+    
+    # Identify middle point for columns
     x_coords = [coord[0][0] for _, coord in data]
-    y_coords = [coord[0][1] for _, coord in data]
-    page_width = max(x_coords) - min(x_coords)
+    middle_x = (min(x_coords) + max(x_coords)) / 2 if x_coords else 0.5
     
-    # Identify middle point to separate left and right columns
-    middle_x = (min(x_coords) + max(x_coords)) / 2
-    
-    # Group by rows based on y-coordinate
+    # Group by rows with adaptive threshold
     data_by_y = sorted(data, key=lambda x: x[1][0][1])
-    rows = []
-    current_row = []
     
-    for i, entry in enumerate(data_by_y):
-        text, coords = entry
+    # IMPROVEMENT 1: Pre-scan for numeric patterns to detect potential missed poll numbers
+    # This helps identify text that looks like poll numbers but wasn't caught by is_number()
+    potential_poll_numbers = set()
+    for text, _ in data:
+        # Look for numeric patterns that might be poll numbers
+        if re.match(r'^\d{1,4}$', text) or re.match(r'^\d{1,4}/\d{1,2}$', text):
+            potential_poll_numbers.add(text)
+    
+    # Sort potential poll numbers numerically for later analysis
+    sorted_potential_numbers = sorted([int(re.sub(r'/.*', '', num)) for num in potential_poll_numbers if re.match(r'^\d+', num)])
+    
+    # Calculate differences between consecutive potential poll numbers to detect patterns
+    number_diffs = []
+    for i in range(1, len(sorted_potential_numbers)):
+        number_diffs.append(sorted_potential_numbers[i] - sorted_potential_numbers[i-1])
+    
+    # If there's a consistent pattern (like +1), we can use it to identify missed numbers
+    common_diff = 1  # Default: assume consecutive numbering
+    if number_diffs:
+        # Use the most common difference
+        from collections import Counter
+        diff_counter = Counter(number_diffs)
+        common_diff = diff_counter.most_common(1)[0][0]
+    
+    # Calculate row threshold adaptively
+    y_diffs = []
+    for i in range(1, len(data_by_y)):
+        curr_y = data_by_y[i][1][0][1]
+        prev_y = data_by_y[i-1][1][0][1]
+        y_diffs.append(abs(curr_y - prev_y))
+    
+    if y_diffs:
+        y_diffs.sort()
+        row_threshold = y_diffs[len(y_diffs)//2] * 1.5
+        row_threshold = max(median_text_height * 0.8, min(median_text_height * 3.0, row_threshold))
+    else:
+        row_threshold = median_text_height * 1.5
+    
+    # Group into rows
+    rows = []
+    current_row = [data_by_y[0]] if data_by_y else []
+    last_y = data_by_y[0][1][0][1] if data_by_y else 0
+    
+    for i in range(1, len(data_by_y)):
+        entry = data_by_y[i]
+        curr_y = entry[1][0][1]
+        y_diff = abs(curr_y - last_y)
         
-        if i == 0:
-            current_row = [entry]
+        if y_diff < row_threshold:
+            current_row.append(entry)
         else:
-            prev_y = data_by_y[i-1][1][0][1]
-            curr_y = coords[0][1]
-            
-            # Use a threshold appropriate for your document
-            y_diff = abs(curr_y - prev_y)
-            threshold = 0.015  # Adjust based on your document spacing
-            
-            if y_diff < threshold:
-                # Same row
-                current_row.append(entry)
-            else:
-                # New row
-                if current_row:
-                    rows.append(current_row)
-                current_row = [entry]
+            if current_row:
+                rows.append(current_row)
+            current_row = [entry]
+        
+        last_y = curr_y
     
     if current_row:
         rows.append(current_row)
     
-    # Process each row to extract entries from both columns
-    for row in rows:
-        # Split row into left and right columns
+    # Calculate median row height
+    row_heights = []
+    for i in range(len(rows)-1):
+        if rows[i] and rows[i+1]:
+            row1_middle_y = sum(entry[1][0][1] for entry in rows[i]) / len(rows[i])
+            row2_middle_y = sum(entry[1][0][1] for entry in rows[i+1]) / len(rows[i+1])
+            row_heights.append(abs(row2_middle_y - row1_middle_y))
+    
+    median_row_height = median_text_height * 2.5  # Fallback
+    if row_heights:
+        row_heights.sort()
+        median_row_height = row_heights[len(row_heights)//2]
+    
+    # IMPROVEMENT 2: Maintain a list of detected poll numbers to check for sequential patterns
+    detected_numbers = []
+    last_processed_y = 0  # Track the last vertical position we processed
+    
+    # Process each row
+    for row_idx, row in enumerate(rows):
         left_column = [entry for entry in row if entry[1][0][0] < middle_x]
         right_column = [entry for entry in row if entry[1][0][0] >= middle_x]
         
-        # Function to process a column and extract entries
-        def process_column(column_entries):
-            if not column_entries:
-                return
-                
+        # Process each column
+        for column in [left_column, right_column]:
+            if not column:
+                continue
+            
             # Sort by x position
-            column_sorted = sorted(column_entries, key=lambda x: x[1][0][0])
+            column_sorted = sorted(column, key=lambda x: x[1][0][0])
             
-            # Look for poll number pattern
-            potential_poll_numbers = []
+            # Find poll numbers
+            poll_candidates = []
             for i, (text, coords) in enumerate(column_sorted):
-                # Check if this is a likely poll number (including those with slashes)
-                if re.match(r'^\d+$', text) or re.match(r'^\d+[A-Za-z]$', text) or re.match(r'^\d+/\d+$', text):
-                    potential_poll_numbers.append((i, text, coords))
+                if is_number(text):
+                    poll_candidates.append((i, text, coords))
+                # IMPROVEMENT 3: Also check for numeric text that might be a missed poll number
+                elif re.match(r'^\d{1,4}$', text):
+                    # This looks like a number but wasn't caught by is_number()
+                    # We'll check if it fits the pattern of other poll numbers
+                    try:
+                        num_value = int(text)
+                        # Check if this could be the next number in sequence
+                        if detected_numbers and abs(num_value - detected_numbers[-1]) <= 2 * common_diff:
+                            # This looks like it could be a valid poll number
+                            poll_candidates.append((i, text, coords))
+                    except ValueError:
+                        pass
             
-            # Process each potential poll number
-            for poll_idx, poll_text, poll_coords in potential_poll_numbers:
-                # Initialize for this poll entry
+            # IMPROVEMENT 4: Smarter processing that's aware of sequential poll numbers
+            for poll_idx, poll_text, poll_coords in poll_candidates:
+                # Track this poll number to detect patterns
+                try:
+                    current_num = int(re.sub(r'/.*', '', poll_text))
+                    detected_numbers.append(current_num)
+                except ValueError:
+                    pass
+                
+                # Initialize collection
                 name_parts = []
                 name_coords = []
                 
-                # Check if there's a single letter after the poll number
-                letter_idx = poll_idx + 1
-                has_letter = False
+                # Handle letter suffixes
+                letter_suffix = ""
+                next_idx = poll_idx + 1
+                has_separate_letter = False
                 
-                if letter_idx < len(column_sorted):
-                    letter_text, letter_coords = column_sorted[letter_idx]
-                    if re.match(r'^[A-Za-z]$', letter_text):
-                        has_letter = True
-                        letter_idx += 1  # Skip the letter in name collection
+                if next_idx < len(column_sorted):
+                    letter_text, letter_coords = column_sorted[next_idx]
+                    if re.match(r'^[A-Za-z]$', letter_text) and abs(letter_coords[0][0] - poll_coords[1][0]) < median_text_height * 2:
+                        letter_suffix = letter_text
+                        has_separate_letter = True
+                        next_idx += 1
                 
-                # Collect name parts until next poll number or end of column
-                for j in range(poll_idx + 1 if not has_letter else letter_idx, len(column_sorted)):
+                # IMPROVEMENT 5: Stricter vertical distance check based on expected entry layout
+                poll_y = poll_coords[0][1]
+                poll_bottom = poll_coords[1][1]
+                
+                # Critical improvement: Check if there's a large gap from the last processed entry
+                # This helps detect cases where a poll number was missed
+                vertical_gap = poll_y - last_processed_y if last_processed_y > 0 else 0
+                
+                # If there's an unusually large gap and we've seen poll numbers before,
+                # this might indicate a missed poll number
+                suspicious_gap = vertical_gap > median_row_height * 1.5 and detected_numbers and len(detected_numbers) >= 2
+                
+                # IMPROVEMENT 6: Look for the next poll number to establish a boundary
+                next_poll_idx = len(column_sorted)
+                for j in range(next_idx, len(column_sorted)):
+                    curr_text = column_sorted[j][0]
+                    # Regular poll number check
+                    if is_number(curr_text):
+                        next_poll_idx = j
+                        break
+                    # Also check for numeric text that might be the next poll number
+                    elif re.match(r'^\d{1,4}$', curr_text):
+                        try:
+                            num_value = int(curr_text)
+                            if detected_numbers and abs(num_value - detected_numbers[-1]) <= 2 * common_diff:
+                                next_poll_idx = j
+                                break
+                        except ValueError:
+                            pass
+                
+                # IMPROVEMENT 7: Use a more restrictive vertical limit if we suspect a missed poll number
+                max_y_distance = poll_height = poll_coords[1][1] - poll_coords[0][1]
+                
+                if suspicious_gap:
+                    # More restrictive - only allow text very close to the poll number
+                    max_y_distance = min(poll_height * 1.5, median_row_height * 0.4)
+                else:
+                    # Standard case - allow a bit more distance
+                    max_y_distance = min(poll_height * 2, median_row_height * 0.7)
+                
+                # Collect name parts with very strict vertical boundaries
+                for j in range(next_idx, next_poll_idx):
                     next_text, next_coords = column_sorted[j]
+                    next_y = next_coords[0][1]
                     
-                    # Skip dashes and page numbers
-                    if next_text == "-----" or next_text == "----" or re.match(r'^\d+$', next_text):
+                    # Skip non-name elements
+                    if next_text.strip() == "-" or re.match(r'^[-]+$', next_text) or re.match(r'^Page \d+$', next_text, re.IGNORECASE):
                         continue
                     
-                    # Stop if this looks like another poll number
-                    if re.match(r'^\d+$', next_text) or re.match(r'^\d+[A-Za-z]$', next_text) or re.match(r'^\d+/\d+$', next_text):
+                    # CRUCIAL: Apply stricter vertical distance check
+                    # This is the key to preventing inclusion of previous entries
+                    if abs(next_y - poll_y) > max_y_distance:
+                        # This text is too far from the poll number - likely part of another entry
                         break
                     
                     # Add to name parts
                     name_parts.append(next_text)
                     name_coords.append(next_coords)
                 
-                # Create entry if we have name parts
+                # Update the last processed vertical position
+                if name_coords:
+                    last_processed_y = max([coords[1][1] for coords in name_coords])
+                else:
+                    last_processed_y = poll_bottom
+                
+                # Create entry if valid
                 if name_parts:
                     name = clean_text(' '.join(name_parts))
-                    if name:
-                        all_coords = [poll_coords] + name_coords
-                        bbox = get_bounding_box(all_coords)
-                        if bbox:
-                            # Include the letter in the poll number if present
-                            if has_letter:
-                                letter = column_sorted[poll_idx + 1][0]
-                                poll_num = f"{poll_text} {letter}"
+                    
+                    if name and len(name.split()) <= 12:
+                        full_poll_num = poll_text
+                        if has_separate_letter:
+                            full_poll_num = f"{poll_text}{letter_suffix}"
+                        
+                        coords_list = [poll_coords]
+                        if has_separate_letter:
+                            coords_list.append(column_sorted[poll_idx+1][1])
+                        coords_list.extend(name_coords)
+                        
+                        # Get basic bounding box
+                        basic_bbox = get_bounding_box(coords_list)
+                        
+                        if basic_bbox:
+                            # Apply height restrictions
+                            x1, y1, x2, y2 = basic_bbox
+                            
+                            # IMPROVEMENT 8: Apply very strict height limit when suspicious gap detected
+                            if suspicious_gap:
+                                # Even more restrictive height limit
+                                reasonable_height = min(median_row_height * 0.5, poll_height * 2.5)
                             else:
-                                poll_num = poll_text
-                                
-                            results.append(Entry(number=poll_num, name=name, bbox=bbox))
-        
-        # Process both columns
-        process_column(left_column)
-        process_column(right_column)
+                                reasonable_height = min(median_row_height * 0.8, poll_height * 3.5)
+                            
+                            current_height = y2 - y1
+                            if current_height > reasonable_height:
+                                # Center the box around the current center
+                                center_y = (y1 + y2) / 2
+                                y1 = center_y - reasonable_height / 2
+                                y2 = center_y + reasonable_height / 2
+                            
+                            adjusted_bbox = (x1, y1, x2, y2)
+                            results.append(Entry(number=full_poll_num, name=name, bbox=adjusted_bbox))
     
     return results
-
 def extract_entries_grid(poll_data: str) -> List[Entry]:
     """Extract entries by first detecting the grid structure of the document."""
     data = eval(poll_data)
@@ -578,78 +720,85 @@ def extract_entries_pattern(poll_data: str) -> List[Entry]:
     return results
 
 def extract_entries(poll_data: str) -> List[Entry]:
-    """Combined approach that integrates multiple extraction methods with minimal filtering."""
+    """
+    Revised extract_entries function that prioritizes v2 results and applies
+    stricter filtering to prevent multiple entries being combined.
+    """
     # Run all extraction methods
     results_v1 = extract_entries_v1(poll_data)
     results_v2 = extract_entries_v2(poll_data)
     results_grid = extract_entries_grid(poll_data)
     results_pattern = extract_entries_pattern(poll_data)
     
-    # Combine all results
-    all_results = results_v1 + results_v2 + results_grid + results_pattern
+    print(f"Method v1: found {len(results_v1)} entries")
+    print(f"Method v2: found {len(results_v2)} entries")
+    print(f"Method grid: found {len(results_grid)} entries")
+    print(f"Method pattern: found {len(results_pattern)} entries")
     
-    # Create a dictionary to deduplicate entries
+    # Create dictionaries to map poll numbers to entries for each method
+    v1_entries = {entry.number.strip(): entry for entry in results_v1}
+    v2_entries = {entry.number.strip(): entry for entry in results_v2}
+    grid_entries = {entry.number.strip(): entry for entry in results_grid}
+    pattern_entries = {entry.number.strip(): entry for entry in results_pattern}
+    
+    # Combine all potential poll numbers for analysis
+    all_numbers = set(v1_entries.keys()) | set(v2_entries.keys()) | set(grid_entries.keys()) | set(pattern_entries.keys())
+    
+    # Filter function to reject entries with suspicious characteristics
+    def is_valid_entry(entry):
+        # Check bounding box height - reject if too tall
+        _, y1, _, y2 = entry.bbox
+        height = y2 - y1
+        if height > 0.025:  # Maximum reasonable height
+            return False
+        
+        # Check name length - reject if too many words
+        name_words = len(entry.name.split())
+        if name_words > 5:  # Maximum reasonable words
+            return False
+            
+        # Additional check for suspicious patterns in names
+        # Reject entries that appear to contain multiple people's names
+        name = entry.name.lower()
+        name_commas = name.count(',')
+        if name_commas > 1:  # More than one comma often indicates multiple names
+            return False
+            
+        return True
+    
+    # Filter entries from each method
+    v1_entries_filtered = {num: entry for num, entry in v1_entries.items() if is_valid_entry(entry)}
+    v2_entries_filtered = {num: entry for num, entry in v2_entries.items() if is_valid_entry(entry)}
+    grid_entries_filtered = {num: entry for num, entry in grid_entries.items() if is_valid_entry(entry)}
+    pattern_entries_filtered = {num: entry for num, entry in pattern_entries.items() if is_valid_entry(entry)}
+    
+    print(f"After filtering:")
+    print(f"Method v1: {len(v1_entries_filtered)} entries (removed {len(v1_entries) - len(v1_entries_filtered)})")
+    print(f"Method v2: {len(v2_entries_filtered)} entries (removed {len(v2_entries) - len(v2_entries_filtered)})")
+    print(f"Method grid: {len(grid_entries_filtered)} entries (removed {len(grid_entries) - len(grid_entries_filtered)})")
+    print(f"Method pattern: {len(pattern_entries_filtered)} entries (removed {len(pattern_entries) - len(pattern_entries_filtered)})")
+    
+    # Final result dictionary, prioritizing v2 over other methods
     result_dict = {}
     
-    # First pass: Store the cleanest entries by poll number
-    for entry in all_results:
-        # Standardize the poll number format
-        poll_num = entry.number.strip()
-        
-        # Basic filtering for obvious errors
-        # Only filter out entries where both poll number and name are problematic
-        if (len(entry.name.split()) > 15 and  # Extremely long names
-            not re.match(r'^[0-9]+(/[0-9]+)?[A-Za-z]?$', poll_num)):  # And non-standard poll numbers
-            continue
-        
-        # Store in dictionary, preferring entries with cleaner formatting
-        if poll_num in result_dict:
-            existing = result_dict[poll_num]
-            # Only replace if current entry has a significantly cleaner name
-            name_words = len(entry.name.split())
-            existing_words = len(existing.name.split())
-            
-            # If both entries have reasonable length names, keep the shorter one
-            if name_words < existing_words and name_words <= 4:
-                result_dict[poll_num] = entry
-        else:
-            result_dict[poll_num] = entry
+    # Start with v2 results (highest priority)
+    for num, entry in v2_entries_filtered.items():
+        result_dict[num] = entry
     
-    # Second pass: Add entries with variant poll numbers that aren't duplicates
-    for entry in all_results:
-        poll_num = entry.number.strip()
-        
-        # Skip entries already processed or filtered
-        if poll_num in result_dict:
-            continue
-            
-        # Very minimal filtering - only skip entries with both problematic poll number and name
-        if (len(entry.name.split()) > 20 and  # Extremely long names 
-            not re.match(r'^[0-9]+(/[0-9]+)?[A-Za-z]?$', poll_num)):  # And non-standard poll numbers
-            continue
-        
-        # For entries with poll numbers containing letters, extract the numeric part
-        numeric_part = re.sub(r'[^0-9/]', '', poll_num)
-        
-        # Check if we already have an entry with the same numeric part
-        has_numeric_match = False
-        for existing_key in result_dict:
-            existing_numeric = re.sub(r'[^0-9/]', '', existing_key)
-            if numeric_part == existing_numeric:
-                # Check if names are similar enough to be considered duplicates
-                entry_name_lower = entry.name.lower()
-                existing_name_lower = result_dict[existing_key].name.lower()
-                
-                # Only consider duplicate if there's substantial name overlap
-                name_parts1 = set(entry_name_lower.split())
-                name_parts2 = set(existing_name_lower.split())
-                if len(name_parts1.intersection(name_parts2)) >= min(2, len(name_parts1) // 2, len(name_parts2) // 2):
-                    has_numeric_match = True
-                    break
-        
-        # Add entry if it's not a duplicate
-        if not has_numeric_match and poll_num:
-            result_dict[poll_num] = entry
+    # Add pattern results if not already present
+    for num, entry in pattern_entries_filtered.items():
+        if num not in result_dict:
+            result_dict[num] = entry
+    
+    # Add grid results if not already present
+    for num, entry in grid_entries_filtered.items():
+        if num not in result_dict:
+            result_dict[num] = entry
+    
+    # Finally, add v1 results if not already present
+    for num, entry in v1_entries_filtered.items():
+        if num not in result_dict:
+            result_dict[num] = entry
     
     # Get all entries as a list
     results = list(result_dict.values())
@@ -659,16 +808,41 @@ def extract_entries(poll_data: str) -> List[Entry]:
     
     # Log extraction statistics
     with open("extraction_results.txt", "w") as f:
-        f.write(f"Version 1 found {len(results_v1)} entries\n")
-        f.write(f"Version 2 found {len(results_v2)} entries\n")
-        f.write(f"Grid-based found {len(results_grid)} entries\n")
-        f.write(f"Pattern-based found {len(results_pattern)} entries\n")
+        f.write(f"Extraction Results\n")
+        f.write(f"=================\n\n")
+        f.write(f"Version 1 found {len(results_v1)} entries, {len(v1_entries_filtered)} after filtering\n")
+        f.write(f"Version 2 found {len(results_v2)} entries, {len(v2_entries_filtered)} after filtering\n")
+        f.write(f"Grid-based found {len(results_grid)} entries, {len(grid_entries_filtered)} after filtering\n")
+        f.write(f"Pattern-based found {len(results_pattern)} entries, {len(pattern_entries_filtered)} after filtering\n")
         f.write(f"Combined approach has {len(results)} entries\n\n")
+        
+        # Count entries by source
+        sources = {
+            "v2": 0,
+            "pattern": 0,
+            "grid": 0,
+            "v1": 0
+        }
+        
+        for num in result_dict:
+            if num in v2_entries_filtered:
+                sources["v2"] += 1
+            elif num in pattern_entries_filtered:
+                sources["pattern"] += 1
+            elif num in grid_entries_filtered:
+                sources["grid"] += 1
+            else:
+                sources["v1"] += 1
+        
+        f.write(f"Source breakdown:\n")
+        for source, count in sources.items():
+            f.write(f"  {source}: {count} entries ({count/len(results)*100:.1f}%)\n\n")
         
         # Log all poll numbers
         for entry in results:
             f.write(f"{entry.number}: {entry.name}\n")
     
+    print(f"Final combined result has {len(results)} entries")
     return results
 
 def get_main_number_safe(number_str: str) -> int:
