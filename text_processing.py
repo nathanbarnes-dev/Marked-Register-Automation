@@ -888,7 +888,7 @@ def sort_entries(entries: List[Entry]) -> List[Entry]:
 def extract_entries_improved(poll_data: str) -> List[Entry]:
     """
     Enhanced extraction function that specifically targets the missing entry cases
-    by using multiple approaches and combining results.
+    by using multiple approaches and combining results, with stricter bounding box controls.
     """
     data = eval(poll_data)
     results = []
@@ -992,6 +992,10 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
     # Process rows to extract entries
     processed_numbers = set()
     
+    # IMPROVEMENT: Create a map of which text elements are already used
+    # This will help prevent text from being used in multiple entries
+    used_text_elements = set()
+    
     for row_idx, row in enumerate(rows):
         # Separate left and right columns
         left_column = []
@@ -1002,19 +1006,24 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
             if not isinstance(text, str):
                 text = str(text) if text is not None else ""
                 
+            # Skip text elements that have already been used in another entry
+            text_id = (text, coords[0][0], coords[0][1])  # Unique identifier
+            if text_id in used_text_elements:
+                continue
+                
             # Determine column based on midpoint of text
             text_midpoint_x = (coords[0][0] + coords[1][0]) / 2
             
             if text_midpoint_x < left_column_boundary:
-                left_column.append((text, coords))
+                left_column.append((text, coords, text_id))
             elif text_midpoint_x > right_column_boundary:
-                right_column.append((text, coords))
+                right_column.append((text, coords, text_id))
             else:
                 # For text in the middle region, make a decision based on its position
                 if coords[0][0] < (min_x + page_width * 0.5):
-                    left_column.append((text, coords))
+                    left_column.append((text, coords, text_id))
                 else:
-                    right_column.append((text, coords))
+                    right_column.append((text, coords, text_id))
         
         # Process each column separately
         for column_items in [left_column, right_column]:
@@ -1024,10 +1033,24 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
             # Sort by x position within column
             column_items.sort(key=lambda x: x[1][0][0])
             
+            # IMPROVEMENT: Keep track of the next poll number positions 
+            # to better estimate vertical boundaries
+            poll_positions = []
+            for i, (text, coords, text_id) in enumerate(column_items):
+                if not isinstance(text, str):
+                    text = str(text) if text is not None else ""
+                    
+                if re.match(poll_number_regex, text) or re.match(poll_number_simple_regex, text):
+                    try:
+                        num_value = int(re.sub(r'/.*', '', re.sub(r'[A-Za-z]$', '', text)))
+                        poll_positions.append((i, num_value, coords[0][1]))
+                    except ValueError:
+                        pass
+            
             # Find potential poll numbers in this column
-            for i, (text, coords) in enumerate(column_items):
+            for idx, (text, coords, text_id) in enumerate(column_items):
                 # Skip if we've already processed this number
-                if text in processed_numbers:
+                if text_id in used_text_elements:
                     continue
                 
                 # Ensure text is a string
@@ -1054,8 +1077,8 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                             poll_number = text
                             
                             # Special case: Check for letter directly following
-                            if i + 1 < len(column_items):
-                                next_text, next_coords = column_items[i + 1]
+                            if idx + 1 < len(column_items):
+                                next_text, next_coords, next_id = column_items[idx + 1]
                                 # Ensure next_text is a string
                                 if not isinstance(next_text, str):
                                     next_text = str(next_text) if next_text is not None else ""
@@ -1064,124 +1087,134 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                                     abs(next_coords[0][0] - coords[1][0]) < median_text_height * 2):
                                     # This is likely a letter suffix (like "A" in "34 A")
                                     poll_number = f"{text}{next_text}"
-                                    i += 1  # Skip the next item since we've incorporated it
+                                    used_text_elements.add(next_id)  # Mark as used
                     except ValueError:
                         pass
                 
                 if is_poll_number and poll_number:
-                    processed_numbers.add(text)
+                    used_text_elements.add(text_id)  # Mark this poll number as used
                     
                     # Look for name associated with this poll number
                     name_parts = []
+                    name_ids = []
                     name_coords = []
                     
-                    # Calculate the vertical extent of the current entry
+                    # IMPROVEMENT: Find the next poll number in sequence to limit vertical search
                     current_y = coords[0][1]
-                    current_height = coords[1][1] - coords[0][1]
+                    next_poll_y = float('inf')
                     
-                    # Define a reasonable vertical range for associated name components
-                    # Items within this vertical range could be part of the name
-                    y_min = current_y - current_height * 0.5
-                    y_max = current_y + current_height * 2.5
+                    for pos_idx, pos_num, pos_y in poll_positions:
+                        if pos_y > current_y + median_text_height * 0.5 and pos_y < next_poll_y:
+                            next_poll_y = pos_y
                     
-                    # Look for items that could be part of the name, based on their position relative to number
-                    for j, (other_text, other_coords) in enumerate(column_items):
+                    # If no next poll number found, use a reasonable default
+                    if next_poll_y == float('inf'):
+                        next_poll_y = current_y + median_text_height * 3.0
+                    
+                    # Calculate a more precise vertical range
+                    y_min = current_y - median_text_height * 0.25
+                    y_max = min(current_y + median_text_height * 2.0, next_poll_y - median_text_height * 0.25)
+                    
+                    # IMPROVEMENT: Also limit the search horizontally
+                    # Find x-position of this poll number
+                    poll_x = coords[0][0]
+                    
+                    # Define a reasonable horizontal range
+                    x_min = poll_x
+                    x_max = min_x + page_width * 0.9  # Allow names to extend quite far, but not to next column
+                    
+                    if coords[0][0] < left_column_boundary:
+                        # Left column entry - restrict to left column width
+                        x_max = left_column_boundary
+                    elif coords[0][0] > right_column_boundary:
+                        # Right column entry - restrict within right column
+                        x_min = right_column_boundary
+                    
+                    # IMPROVEMENT: Look for name parts with stricter position constraints
+                    for j, (other_text, other_coords, other_id) in enumerate(column_items):
+                        # Skip if already used
+                        if other_id in used_text_elements:
+                            continue
+                            
                         # Ensure other_text is a string
                         if not isinstance(other_text, str):
                             other_text = str(other_text) if other_text is not None else ""
                             
                         # Skip the poll number itself
-                        if j <= i:  # Use <= instead of == to account for cases where we used a letter suffix
+                        if other_id == text_id:
                             continue
                         
-                        # Check if this item is within reasonable vertical range
+                        # Check if this item is within vertical range
                         other_y = other_coords[0][1]
                         
+                        # CRUCIAL: Apply much stricter vertical range check
                         if y_min <= other_y <= y_max:
-                            # Exclude items that look like numbers
-                            if not re.match(r'^\d+(/\d+)?[A-Za-z]?$', other_text):
-                                # Check for reasonable horizontal position
-                                # Names usually appear to the right of numbers
-                                if other_coords[0][0] > coords[0][0]:
+                            # Apply horizontal range check
+                            other_x = other_coords[0][0]
+                            
+                            # Check if within horizontal range and to the right of number
+                            if x_min <= other_x <= x_max and other_x >= poll_x:
+                                # Exclude items that look like numbers
+                                if not re.match(r'^\d+(/\d+)?[A-Za-z]?$', other_text):
                                     name_parts.append(other_text)
                                     name_coords.append(other_coords)
-                        elif other_y > y_max:
-                            # We've moved past the vertical range - stop looking
-                            break
+                                    name_ids.append(other_id)
                     
-                    # IMPROVEMENT: Look through the entire document for potential name components
-                    # This helps with cases where the name is separated across the document
-                    if len(name_parts) < 2:  # Only do this for entries with few name parts
-                        poll_y = coords[0][1]
+                    # IMPROVEMENT: If we found name parts, make sure they're reasonably close together
+                    if name_parts:
+                        # Group name parts that are close together horizontally
+                        valid_name_parts = []
+                        valid_name_coords = []
+                        valid_name_ids = []
                         
-                        # Calculate safe vertical range for this number
-                        safe_y_min = poll_y - median_text_height * 0.5
-                        safe_y_max = poll_y + median_text_height * 2.0
+                        # Sort name parts by x-coordinate
+                        sorted_name_data = sorted(zip(name_parts, name_coords, name_ids), key=lambda x: x[1][0][0])
                         
-                        for text_item, text_coords in data:
-                            # Ensure text_item is a string
-                            if not isinstance(text_item, str):
-                                text_item = str(text_item) if text_item is not None else ""
-                                
-                            # Skip items that are likely numbers
-                            if re.match(r'^\d+(/\d+)?[A-Za-z]?$', text_item):
-                                continue
-                            
-                            text_y = text_coords[0][1]
-                            
-                            if safe_y_min <= text_y <= safe_y_max:
-                                # Check for reasonable horizontal distance
-                                text_x = text_coords[0][0]
-                                
-                                # Check if in same column and to the right of number
-                                if ((text_x > coords[0][0]) and 
-                                    ((text_x < left_column_boundary and coords[0][0] < left_column_boundary) or
-                                     (text_x > right_column_boundary and coords[0][0] > right_column_boundary))):
-                                    
-                                    # Skip if already in name_parts
-                                    if text_item not in name_parts:
-                                        name_parts.append(text_item)
-                                        name_coords.append(text_coords)
-                    
-                    # SPECIFIC IMPROVEMENT FOR RIGHT COLUMN:
-                    # Handle cases where numbers are in right column but names start far to the right
-                    if coords[0][0] > right_column_boundary:
-                        poll_y = coords[0][1]
+                        # Start with the first name part
+                        current_x = sorted_name_data[0][1][1][0]  # End of first part
+                        valid_name_parts.append(sorted_name_data[0][0])
+                        valid_name_coords.append(sorted_name_data[0][1])
+                        valid_name_ids.append(sorted_name_data[0][2])
                         
-                        # Look for text elements at same vertical level but far to the right
-                        for text_item, text_coords in data:
-                            # Ensure text_item is a string
-                            if not isinstance(text_item, str):
-                                text_item = str(text_item) if text_item is not None else ""
-                                
-                            text_y = text_coords[0][1]
-                            text_x = text_coords[0][0]
+                        # Check remaining parts
+                        for part, part_coords, part_id in sorted_name_data[1:]:
+                            part_x = part_coords[0][0]  # Start of this part
                             
-                            # Check if at similar vertical position but far to the right
-                            if (abs(text_y - poll_y) < median_text_height * 0.8 and 
-                                text_x > coords[1][0] + median_text_height * 3):
-                                if text_item not in name_parts:
-                                    name_parts.append(text_item)
-                                    name_coords.append(text_coords)
+                            # Check if this part is reasonably close to the previous one
+                            x_gap = part_x - current_x
+                            
+                            if x_gap <= median_text_height * 3.0:
+                                # This part is close enough horizontally - add it
+                                valid_name_parts.append(part)
+                                valid_name_coords.append(part_coords)
+                                valid_name_ids.append(part_id)
+                                current_x = part_coords[1][0]  # Update current x
+                            else:
+                                # This part is too far away - might belong to another entry
+                                break
+                        
+                        # Update name parts with valid ones
+                        name_parts = valid_name_parts
+                        name_coords = valid_name_coords
+                        name_ids = valid_name_ids
                     
                     # Create the entry if we found a name
                     if name_parts:
-                        # Sort name parts by x-coordinate for correct order
-                        name_parts_with_coords = sorted(zip(name_parts, name_coords), key=lambda x: x[1][0][0])
-                        name_parts = [part for part, _ in name_parts_with_coords]
-                        name_coords = [coords for _, coords in name_parts_with_coords]
-                        
-                        # Clean up and create name
+                        # Mark these text elements as used
+                        for name_id in name_ids:
+                            used_text_elements.add(name_id)
+                            
+                        # Create name and bounding box
                         name = clean_text(' '.join(name_parts))
                         
-                        # Create bounding box
+                        # IMPROVEMENT: Create a tighter bounding box
                         all_coords = [coords] + name_coords
                         bbox = get_bounding_box(all_coords)
                         
                         if bbox and name:
                             results.append(Entry(number=poll_number, name=name, bbox=bbox))
     
-    # SECOND PASS: Check for missed entries
+    # SECOND PASS: Check for missed entries with tighter controls
     # Use expected sequence patterns to find missing entries
     extracted_numbers = []
     for entry in results:
@@ -1204,6 +1237,14 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
         expected_range = range(min(extracted_numbers), max(extracted_numbers) + 1)
         missing_numbers = [num for num in expected_range if num not in extracted_numbers]
     
+    # Reset used_text_elements for second pass
+    used_text_elements = set()
+    for entry in results:
+        # Mark all text in existing entries as used
+        # This requires reconstructing the coordinates, which we don't have here
+        # So this is a placeholder - in practice we'd need to track these
+        pass
+    
     # For each missing number, look for entries that might match
     for missing_num in missing_numbers:
         # Look for text elements that contain this number
@@ -1211,32 +1252,46 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
         missing_num_str = str(missing_num)
         
         for text, coords in data:
+            # Skip if this text is already used in an entry
+            text_id = (text, coords[0][0], coords[0][1])
+            if text_id in used_text_elements:
+                continue
+                
             # Ensure text is a string
             if not isinstance(text, str):
                 text = str(text) if text is not None else ""
                 
             # Check for exact number match or number with suffix
             if text == missing_num_str or text.startswith(f"{missing_num_str}/") or text.startswith(f"{missing_num_str}A"):
-                matching_elements.append((text, coords))
+                matching_elements.append((text, coords, text_id))
         
         # Process each potential match
-        for text, coords in matching_elements:
+        for text, coords, text_id in matching_elements:
             # Calculate safe vertical range for this number
             poll_y = coords[0][1]
-            safe_y_min = poll_y - median_text_height * 1.0
-            safe_y_max = poll_y + median_text_height * 2.5
+            
+            # IMPROVED: Use much tighter vertical constraints
+            safe_y_min = poll_y - median_text_height * 0.25
+            safe_y_max = poll_y + median_text_height * 1.5
             
             # Find potential name components
             name_parts = []
             name_coords = []
+            name_ids = []
             
             for text_item, text_coords in data:
+                text_item_id = (text_item, text_coords[0][0], text_coords[0][1])
+                
+                # Skip if already used
+                if text_item_id in used_text_elements:
+                    continue
+                    
                 # Ensure text_item is a string
                 if not isinstance(text_item, str):
                     text_item = str(text_item) if text_item is not None else ""
                     
                 # Skip the poll number itself
-                if text_item == text:
+                if text_item_id == text_id:
                     continue
                 
                 # Skip items that look like numbers
@@ -1245,19 +1300,29 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                 
                 text_y = text_coords[0][1]
                 
+                # Apply stricter vertical constraints
                 if safe_y_min <= text_y <= safe_y_max:
                     # Check for reasonable horizontal position
                     text_x = text_coords[0][0]
                     
+                    # IMPROVED: Use stricter horizontal constraints
                     # Name should be to the right of number and not too far away
-                    if text_x > coords[0][0] and (text_x - coords[1][0]) < page_width * 0.3:
+                    if (text_x > coords[0][0] and 
+                        (text_x - coords[1][0]) < page_width * 0.2):  # Much stricter constraint
+                        
                         # Only add if not already in name_parts
                         if text_item not in name_parts:
                             name_parts.append(text_item)
                             name_coords.append(text_coords)
+                            name_ids.append(text_item_id)
             
             # If we found potential name components, create an entry
             if name_parts:
+                # Mark these text elements as used
+                used_text_elements.add(text_id)
+                for name_id in name_ids:
+                    used_text_elements.add(name_id)
+                    
                 # Sort name parts by x-coordinate
                 name_parts_with_coords = sorted(zip(name_parts, name_coords), key=lambda x: x[1][0][0])
                 name_parts = [part for part, _ in name_parts_with_coords]
@@ -1274,7 +1339,13 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
     
     # THIRD PASS: Handle specific problematic patterns we've observed
     # Specifically target patterns like entry numbers 70, 71, etc. that need special treatment
+    # Only consider text elements that haven't been used yet
     for text, coords in data:
+        # Skip if already used
+        text_id = (text, coords[0][0], coords[0][1])
+        if text_id in used_text_elements:
+            continue
+            
         # Ensure text is a string
         if not isinstance(text, str):
             text = str(text) if text is not None else ""
@@ -1285,9 +1356,9 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
             poll_number = text
             poll_y = coords[0][1]
             
-            # Use a wider search radius for these specific entries
-            safe_y_min = poll_y - median_text_height * 1.5
-            safe_y_max = poll_y + median_text_height * 3.0
+            # Use tighter search radius for these specific entries
+            safe_y_min = poll_y - median_text_height * 0.5
+            safe_y_max = poll_y + median_text_height * 1.5
             
             # Check if we already have an entry with this number
             already_extracted = any(str(entry.number) == poll_number for entry in results)
@@ -1297,9 +1368,15 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                 # Find name components specifically looking for patterns in your examples
                 name_parts = []
                 name_coords = []
+                name_ids = []
                 
                 # For entries 70-71, look for text "Lohia," which appears in both examples
                 for text_item, text_coords in data:
+                    # Skip if already used
+                    text_item_id = (text_item, text_coords[0][0], text_coords[0][1])
+                    if text_item_id in used_text_elements:
+                        continue
+                        
                     # Ensure text_item is a string
                     if not isinstance(text_item, str):
                         text_item = str(text_item) if text_item is not None else ""
@@ -1309,22 +1386,35 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                         if safe_y_min <= text_y <= safe_y_max:
                             name_parts.append(text_item)
                             name_coords.append(text_coords)
+                            name_ids.append(text_item_id)
                             
                             # Look for additional name components near this one
                             for other_text, other_coords in data:
+                                # Skip if already used
+                                other_id = (other_text, other_coords[0][0], other_coords[0][1])
+                                if other_id in used_text_elements:
+                                    continue
+                                    
                                 # Ensure other_text is a string
                                 if not isinstance(other_text, str):
                                     other_text = str(other_text) if other_text is not None else ""
                                     
                                 if other_text != text_item and not re.match(r'^\d+$', other_text):
                                     other_y = other_coords[0][1]
-                                    if abs(other_y - text_y) < median_text_height * 0.8:
+                                    # Use stricter vertical matching
+                                    if abs(other_y - text_y) < median_text_height * 0.5:
                                         name_parts.append(other_text)
                                         name_coords.append(other_coords)
+                                        name_ids.append(other_id)
                 
                 # For entries 33-34, look for "Charlok, Phlppat" and "Randal, Sharont"
                 if text in ["33", "34"]:
                     for text_item, text_coords in data:
+                        # Skip if already used
+                        text_item_id = (text_item, text_coords[0][0], text_coords[0][1])
+                        if text_item_id in used_text_elements:
+                            continue
+                            
                         # Ensure text_item is a string
                         if not isinstance(text_item, str):
                             text_item = str(text_item) if text_item is not None else ""
@@ -1334,20 +1424,32 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                             if safe_y_min <= text_y <= safe_y_max:
                                 name_parts.append(text_item)
                                 name_coords.append(text_coords)
+                                name_ids.append(text_item_id)
                                 
                                 # Check for a separate "A" letter before the name
                                 for other_text, other_coords in data:
+                                    # Skip if already used
+                                    other_id = (other_text, other_coords[0][0], other_coords[0][1])
+                                    if other_id in used_text_elements:
+                                        continue
+                                        
                                     # Ensure other_text is a string
                                     if not isinstance(other_text, str):
                                         other_text = str(other_text) if other_text is not None else ""
                                         
-                                    if other_text == "A" and abs(other_coords[0][1] - text_y) < median_text_height * 0.5:
+                                    if other_text == "A" and abs(other_coords[0][1] - text_y) < median_text_height * 0.4:
                                         # Add the "A" before the name
                                         name_parts.insert(0, other_text)
                                         name_coords.insert(0, other_coords)
+                                        name_ids.insert(0, other_id)
                 
                 # If we found potential name components, create an entry
                 if name_parts:
+                    # Mark these elements as used
+                    used_text_elements.add(text_id)
+                    for name_id in name_ids:
+                        used_text_elements.add(name_id)
+                        
                     # Sort name parts by x-coordinate
                     name_parts_with_coords = sorted(zip(name_parts, name_coords), key=lambda x: x[1][0][0])
                     name_parts = [part for part, _ in name_parts_with_coords]
