@@ -872,14 +872,17 @@ def analyze_page_numbers(entries: List[Entry]) -> Tuple[int, int]:
     
     return (0, upper_limit)
 
-def parse_entry_number(entry_num: str) -> Tuple[float, float]:
+def parse_entry_number(entry_num: str) -> tuple[float, float]:
     """Parse entry numbers into sortable tuples."""
     cleaned = re.sub(r'[^0-9/]', '', entry_num)
     
     if '/' in cleaned:
-        main, sub = cleaned.split('/')
-        return (float(main), float(sub))
-    return (float(cleaned), 0)
+        parts = cleaned.split('/')
+        main = parts[0]
+        # Handle the case where there's nothing after the slash
+        sub = parts[1] if len(parts) > 1 and parts[1] else '0'
+        return (float(main) if main else 0.0, float(sub))
+    return (float(cleaned) if cleaned else 0.0, 0.0)
 
 def sort_entries(entries: List[Entry]) -> List[Entry]:
     """Sort entries based on their numbers."""
@@ -892,6 +895,25 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
     """
     data = eval(poll_data)
     results = []
+    
+    # Helper function to validate poll numbers
+    def validate_poll_number(number):
+        """Validate and sanitize a poll number"""
+        # Ensure it's a string
+        if not isinstance(number, str):
+            number = str(number) if number is not None else ""
+            
+        # Check if it has at least one digit
+        if not re.search(r'\d', number):
+            return None  # Invalid poll number, reject it
+            
+        # If there's a slash, ensure both parts have digits
+        if '/' in number:
+            parts = number.split('/')
+            if len(parts) != 2 or not re.search(r'\d', parts[0]) or not re.search(r'\d', parts[1]):
+                return None  # Invalid poll number, reject it
+                
+        return number
     
     # Get document metrics
     all_heights = [coords[1][1] - coords[0][1] for _, coords in data]
@@ -1092,6 +1114,12 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                         pass
                 
                 if is_poll_number and poll_number:
+                    # Validate poll number
+                    valid_poll_number = validate_poll_number(poll_number)
+                    if not valid_poll_number:
+                        continue  # Skip invalid poll numbers
+                    
+                    poll_number = valid_poll_number
                     used_text_elements.add(text_id)  # Mark this poll number as used
                     
                     # Look for name associated with this poll number
@@ -1212,7 +1240,10 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                         bbox = get_bounding_box(all_coords)
                         
                         if bbox and name:
-                            results.append(Entry(number=poll_number, name=name, bbox=bbox))
+                            # Validate poll_number again before creating the entry
+                            valid_poll_number = validate_poll_number(poll_number)
+                            if valid_poll_number:
+                                results.append(Entry(number=valid_poll_number, name=name, bbox=bbox))
     
     # SECOND PASS: Check for missed entries with tighter controls
     # Use expected sequence patterns to find missing entries
@@ -1335,7 +1366,10 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                 
                 if bbox and name:
                     poll_number = text
-                    results.append(Entry(number=poll_number, name=name, bbox=bbox))
+                    # Validate poll_number before creating the entry
+                    valid_poll_number = validate_poll_number(poll_number)
+                    if valid_poll_number:
+                        results.append(Entry(number=valid_poll_number, name=name, bbox=bbox))
     
     # THIRD PASS: Handle specific problematic patterns we've observed
     # Specifically target patterns like entry numbers 70, 71, etc. that need special treatment
@@ -1461,9 +1495,13 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                     bbox = get_bounding_box(all_coords)
                     
                     if bbox and name:
-                        results.append(Entry(number=poll_number, name=name, bbox=bbox))
+                        poll_number = text
+                        # Validate poll_number before creating the entry
+                        valid_poll_number = validate_poll_number(poll_number)
+                        if valid_poll_number:
+                            results.append(Entry(number=valid_poll_number, name=name, bbox=bbox))
     
-    # Sort the results by poll number with safe parsing
+    # Define a safer parsing function for sorting
     def safe_parse_entry_number(entry_num):
         try:
             # Ensure entry_num is a string
@@ -1482,10 +1520,19 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                 return (0, 0)
                 
             if '/' in cleaned:
-                main_part, sub_part = cleaned.split('/', 1)
+                parts = cleaned.split('/', 1)
                 # Handle empty parts
-                main_num = float(main_part) if main_part else 0
-                sub_num = float(sub_part) if sub_part else 0
+                main_part = parts[0]
+                sub_part = parts[1] if len(parts) > 1 else ""
+                
+                # Ensure non-empty strings for conversion
+                if not main_part:
+                    main_part = "0"
+                if not sub_part:
+                    sub_part = "0"
+                    
+                main_num = float(main_part)
+                sub_num = float(sub_part)
                 return (main_num, sub_num)
             else:
                 return (float(cleaned), 0)
@@ -1493,6 +1540,7 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
             # If conversion fails, return default
             return (0, 0)
     
+    # Sort entries by poll number
     results.sort(key=lambda x: safe_parse_entry_number(x.number))
     
     return results
