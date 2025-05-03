@@ -12,6 +12,7 @@ class Entry:
     name: str
     bbox: Tuple[float, float, float, float]
     page: Optional[int] = None
+    source: Optional[str] = None  # Add this field to track which method found the entry
 
 def ocrtotext(filepath: str) -> List[List]:
     """Convert PDF to text using OCR."""
@@ -27,6 +28,79 @@ def ocrtotext(filepath: str) -> List[List]:
          for prediction in page.predictions[class_name]]
         for page in result.pages
     ]
+# Step 3: Add a function to save source tracking logs (in text_processing.py)
+def save_source_tracking_log(entries: List[Entry], log_dir: str = "") -> str:
+    """
+    Save detailed source tracking information to a log file.
+    
+    Args:
+        entries: The list of entries with source information
+        log_dir: Directory to save the log in (default is current directory)
+        
+    Returns:
+        The path to the created log file
+    """
+    from datetime import datetime
+    import os
+    
+    # Create a source analysis dictionary
+    source_stats = {
+        "improved": 0,
+        "v2": 0, 
+        "pattern": 0,
+        "grid": 0,
+        "v1": 0
+    }
+    
+    # Count entries by source
+    for entry in entries:
+        if hasattr(entry, 'source') and entry.source in source_stats:
+            source_stats[entry.source] += 1
+    
+    # Calculate total for percentage calculations
+    total_entries = sum(source_stats.values())
+    
+    # Create log filename with timestamp
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_filename = f"source_tracking_{timestamp}.log"
+    
+    # Use the specified directory if provided
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, log_filename)
+    else:
+        log_path = log_filename
+    
+    with open(log_path, "w") as f:
+        f.write(f"Entry Source Tracking Log\n")
+        f.write(f"=======================\n\n")
+        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        # Final combination statistics
+        f.write(f"Results Summary:\n")
+        f.write(f"---------------\n")
+        f.write(f"Total entries processed: {total_entries}\n\n")
+        
+        # Write source breakdown with percentages
+        f.write(f"Source Breakdown:\n")
+        f.write(f"----------------\n")
+        for source, count in source_stats.items():
+            percentage = (count / total_entries * 100) if total_entries > 0 else 0
+            f.write(f"{source}: {count} entries ({percentage:.2f}%)\n")
+        f.write("\n")
+        
+        # List all entries with their sources
+        f.write(f"Detailed Entry List:\n")
+        f.write(f"------------------\n")
+        f.write(f"{'Poll Number':<15} | {'Source':<10} | Name\n")
+        f.write(f"{'-'*15} | {'-'*10} | {'-'*40}\n")
+        
+        for entry in entries:
+            source = entry.source if hasattr(entry, 'source') else "unknown"
+            f.write(f"{entry.number:<15} | {source:<10} | {entry.name}\n")
+    
+    print(f"Source tracking log saved to: {log_path}")
+    return log_path
 
 def clean_text(text: str) -> str:
     """Clean up text by removing special characters and normalizing spaces."""
@@ -721,15 +795,30 @@ def extract_entries_pattern(poll_data: str) -> List[Entry]:
 
 def extract_entries(poll_data: str) -> List[Entry]:
     """
-    Revised extract_entries function that prioritizes v2 results and applies
+    Revised extract_entries function that prioritizes improved results and applies
     stricter filtering to prevent multiple entries being combined.
+    Also tracks which method provided each entry.
     """
+    from datetime import datetime  # Add this import at the top of the file
+    
     # Run all extraction methods
     results_v1 = extract_entries_v1(poll_data)
     results_v2 = extract_entries_v2(poll_data)
     results_grid = extract_entries_grid(poll_data)
     results_pattern = extract_entries_pattern(poll_data)
     results_improved = extract_entries_improved(poll_data)
+
+    # Add source information to each entry
+    for entry in results_v1:
+        entry.source = "v1"
+    for entry in results_v2:
+        entry.source = "v2"
+    for entry in results_grid:
+        entry.source = "grid"
+    for entry in results_pattern:
+        entry.source = "pattern"
+    for entry in results_improved:
+        entry.source = "improved"
 
     print(f"Method v1: found {len(results_v1)} entries")
     print(f"Method v2: found {len(results_v2)} entries")
@@ -774,22 +863,26 @@ def extract_entries(poll_data: str) -> List[Entry]:
     v2_entries_filtered = {num: entry for num, entry in v2_entries.items() if is_valid_entry(entry)}
     grid_entries_filtered = {num: entry for num, entry in grid_entries.items() if is_valid_entry(entry)}
     pattern_entries_filtered = {num: entry for num, entry in pattern_entries.items() if is_valid_entry(entry)}
-    improved_entries = {entry.number.strip(): entry for entry in results_improved}
+    improved_entries_filtered = {num: entry for num, entry in improved_entries.items() if is_valid_entry(entry)}
     
     print(f"After filtering:")
     print(f"Method v1: {len(v1_entries_filtered)} entries (removed {len(v1_entries) - len(v1_entries_filtered)})")
     print(f"Method v2: {len(v2_entries_filtered)} entries (removed {len(v2_entries) - len(v2_entries_filtered)})")
     print(f"Method grid: {len(grid_entries_filtered)} entries (removed {len(grid_entries) - len(grid_entries_filtered)})")
     print(f"Method pattern: {len(pattern_entries_filtered)} entries (removed {len(pattern_entries) - len(pattern_entries_filtered)})")
+    print(f"Method improved: {len(improved_entries_filtered)} entries (removed {len(improved_entries) - len(improved_entries_filtered)})")
     
-    # Final result dictionary, prioritizing v2 over other methods
+    # Final result dictionary, prioritizing methods in order: improved, v2, pattern, grid, v1
     result_dict = {}
-    for num, entry in improved_entries.items():
+    
+    # Start with improved results (highest priority)
+    for num, entry in improved_entries_filtered.items():
         result_dict[num] = entry
     
-    # Start with v2 results (highest priority)
+    # Add v2 results if not already present
     for num, entry in v2_entries_filtered.items():
-        result_dict[num] = entry
+        if num not in result_dict:
+            result_dict[num] = entry
     
     # Add pattern results if not already present
     for num, entry in pattern_entries_filtered.items():
@@ -812,6 +905,20 @@ def extract_entries(poll_data: str) -> List[Entry]:
     # Sort the results by poll number
     results.sort(key=lambda x: parse_entry_number(x.number))
     
+    # Create a source analysis dictionary
+    source_stats = {
+        "improved": 0,
+        "v2": 0, 
+        "pattern": 0,
+        "grid": 0,
+        "v1": 0
+    }
+    
+    # Count entries by source
+    for entry in results:
+        if entry.source in source_stats:
+            source_stats[entry.source] += 1
+    
     # Log extraction statistics
     with open("extraction_results.txt", "w") as f:
         f.write(f"Extraction Results\n")
@@ -820,36 +927,42 @@ def extract_entries(poll_data: str) -> List[Entry]:
         f.write(f"Version 2 found {len(results_v2)} entries, {len(v2_entries_filtered)} after filtering\n")
         f.write(f"Grid-based found {len(results_grid)} entries, {len(grid_entries_filtered)} after filtering\n")
         f.write(f"Pattern-based found {len(results_pattern)} entries, {len(pattern_entries_filtered)} after filtering\n")
+        f.write(f"Improved found {len(results_improved)} entries, {len(improved_entries_filtered)} after filtering\n")
         f.write(f"Combined approach has {len(results)} entries\n\n")
         
         # Count entries by source
         sources = {
+            "improved": 0,
             "v2": 0,
             "pattern": 0,
             "grid": 0,
             "v1": 0
         }
         
-        for num in result_dict:
-            if num in v2_entries_filtered:
-                sources["v2"] += 1
-            elif num in pattern_entries_filtered:
-                sources["pattern"] += 1
-            elif num in grid_entries_filtered:
-                sources["grid"] += 1
-            else:
-                sources["v1"] += 1
+        for entry in results:
+            if entry.source in sources:
+                sources[entry.source] += 1
         
         f.write(f"Source breakdown:\n")
+        total_entries = len(results)
         for source, count in sources.items():
-            f.write(f"  {source}: {count} entries ({count/len(results)*100:.1f}%)\n\n")
+            percentage = count/total_entries*100 if total_entries > 0 else 0
+            f.write(f"  {source}: {count} entries ({percentage:.1f}%)\n\n")
         
-        # Log all poll numbers
+        # Log all poll numbers with their sources
+        f.write(f"Poll Number | Source Method | Name\n")
+        f.write(f"-----------|--------------|-----\n")
         for entry in results:
-            f.write(f"{entry.number}: {entry.name}\n")
+            f.write(f"{entry.number} | {entry.source} | {entry.name}\n")
     
     print(f"Final combined result has {len(results)} entries")
+    print(f"Source breakdown:")
+    for source, count in source_stats.items():
+        percentage = count/len(results)*100 if results else 0
+        print(f"  {source}: {count} entries ({percentage:.1f}%)")
+    
     return results
+
 
 def get_main_number_safe(number_str: str) -> int:
     """Safely extract the main number from an entry."""
@@ -1370,10 +1483,6 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                     valid_poll_number = validate_poll_number(poll_number)
                     if valid_poll_number:
                         results.append(Entry(number=valid_poll_number, name=name, bbox=bbox))
-    
-    # THIRD PASS: Handle specific problematic patterns we've observed
-    # Specifically target patterns like entry numbers 70, 71, etc. that need special treatment
-    # Only consider text elements that haven't been used yet
     for text, coords in data:
         # Skip if already used
         text_id = (text, coords[0][0], coords[0][1])
@@ -1384,17 +1493,17 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
         if not isinstance(text, str):
             text = str(text) if text is not None else ""
             
-        # Check specifically for entries in the range of 70-75 and 100-150
+        
         if re.match(r'^(7[0-5]|1[0-4][0-9])$', text):
-            # These are the problematic entries mentioned in the prompt
+         
             poll_number = text
             poll_y = coords[0][1]
             
-            # Use tighter search radius for these specific entries
+         
             safe_y_min = poll_y - median_text_height * 0.5
             safe_y_max = poll_y + median_text_height * 1.5
             
-            # Check if we already have an entry with this number
+
             already_extracted = any(str(entry.number) == poll_number for entry in results)
             
             # Only try to extract if not already handled
@@ -1440,8 +1549,6 @@ def extract_entries_improved(poll_data: str) -> List[Entry]:
                                         name_parts.append(other_text)
                                         name_coords.append(other_coords)
                                         name_ids.append(other_id)
-                
-                # For entries 33-34, look for "Charlok, Phlppat" and "Randal, Sharont"
                 if text in ["33", "34"]:
                     for text_item, text_coords in data:
                         # Skip if already used
